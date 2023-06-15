@@ -21,6 +21,8 @@ struct Args {
     centre_x: Option<f64>,
     #[arg(long)]
     centre_y: Option<f64>,
+    #[arg(long)]
+    quantise_z_layer_height: Option<f32>,
 }
 
 fn main() {
@@ -39,6 +41,11 @@ fn main() {
     }
     if args.base_height < 0.0 {
         panic!("minimum_level_of_detail cannot be negative")
+    }
+    if let Some(quantise_z_layer_height) = args.quantise_z_layer_height {
+        if quantise_z_layer_height <= 0.0 {
+            panic!("quantise_z_layer_height must be positive");
+        }
     }
 
     println!("Reading from {:?}", args.geotiff);
@@ -148,13 +155,27 @@ fn main() {
     println!("Mesh level of detail (x, y) will be {:?}mm", resolution);
     let mut centering_offsets = (mesh_dimensions.0 / 2.0, mesh_dimensions.1 / 2.0);
     if let Some(centre_x) = args.centre_x {
-        centering_offsets.0 = mesh_dimensions.0 * (centre_x - geotiff_top_left_xy.0) / geotiff_geo_dimensions.0;
+        centering_offsets.0 =
+            mesh_dimensions.0 * (centre_x - geotiff_top_left_xy.0) / geotiff_geo_dimensions.0;
+        println!(
+            "Mesh is set to put X=0 at real-world coordinate {}",
+            centre_x
+        );
     }
     if let Some(centre_y) = args.centre_y {
-        //centering_offsets.1 = -mesh_dimensions.1 * (centre_y - geotiff_top_left_xy.1) / geotiff_geo_dimensions.1;
-        centering_offsets.1 = mesh_dimensions.1 * (centre_y - geotiff_bottom_right_xy.1) / geotiff_geo_dimensions.1;
+        centering_offsets.1 =
+            mesh_dimensions.1 * (centre_y - geotiff_bottom_right_xy.1) / geotiff_geo_dimensions.1;
+        println!(
+            "Mesh is set to put Y=0 at real-world coordinate {}",
+            centre_y
+        );
     }
-    println!("centering_offsets = {:?}", centering_offsets);
+    if let Some(quantise_z_layer_height) = args.quantise_z_layer_height {
+        println!(
+            "Mesh is set to quantize Z heights into steps of {}mm",
+            quantise_z_layer_height
+        );
+    }
     println!();
 
     println!("MESH SIZE");
@@ -190,7 +211,13 @@ fn main() {
         .unwrap();
     let buf_z = |x: usize, y: usize| {
         let y_flipped = buf.size.1 - y - 1;
-        buf.data[y_flipped * buf.size.0 + x] * args.vertical_scale
+        let z_value = buf.data[y_flipped * buf.size.0 + x] * args.vertical_scale;
+        if let Some(quantise_z_layer_height) = args.quantise_z_layer_height {
+            let quantization_multiplier = 1.0 / quantise_z_layer_height;
+            (z_value * quantization_multiplier).round() / quantization_multiplier
+        } else {
+            z_value
+        }
     };
 
     let vertex = |x: usize, y: usize, z: Option<f32>| {
