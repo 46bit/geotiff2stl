@@ -23,10 +23,13 @@ struct Args {
     centre_y: Option<f64>,
     #[arg(long)]
     quantise_z_layer_height: Option<f32>,
+    #[arg(long)]
+    edge_fillet: Option<f32>,
 }
 
 fn main() {
     let args = Args::parse();
+
     if args.geotiff == "-" {
         panic!("stdin not yet supported");
     }
@@ -47,7 +50,21 @@ fn main() {
             panic!("quantise_z_layer_height must be positive");
         }
     }
+    if let Some(edge_fillet) = args.edge_fillet {
+        if edge_fillet <= 0.0 {
+            panic!("edge_fillet must be positive");
+        }
+        if let Some(edge_fillet) = args.edge_fillet {
+            if edge_fillet > args.base_height {
+                panic!("edge_fillet cannot exceed base_height");
+            }
+        }
+    }
 
+    geotiff2stl(args);
+}
+
+fn geotiff2stl(args: Args) {
     println!("Reading from {:?}", args.geotiff);
     println!();
 
@@ -211,13 +228,55 @@ fn main() {
         .unwrap();
     let buf_z = |x: usize, y: usize| {
         let y_flipped = buf.size.1 - y - 1;
-        let z_value = buf.data[y_flipped * buf.size.0 + x] * args.vertical_scale;
+        let mut z_value = buf.data[y_flipped * buf.size.0 + x] * args.vertical_scale;
+
         if let Some(quantise_z_layer_height) = args.quantise_z_layer_height {
             let quantization_multiplier = 1.0 / quantise_z_layer_height;
-            (z_value * quantization_multiplier).round() / quantization_multiplier
-        } else {
-            z_value
+            z_value = (z_value * quantization_multiplier).round() / quantization_multiplier;
         }
+
+        if let Some(edge_fillet) = args.edge_fillet {
+            let edge_fillet_vertex_count = (
+                edge_fillet / resolution.0 as f32,
+                edge_fillet / resolution.1 as f32,
+            );
+            let mut fillet_z_value_decrease: f32 = 0.0;
+            if (x as f32) < edge_fillet_vertex_count.0 {
+                let adjacent = edge_fillet_vertex_count.0 - x as f32;
+                let hypotenuse = edge_fillet_vertex_count.0;
+                let opposite = (hypotenuse.powf(2.0) - adjacent.powf(2.0)).sqrt()
+                    * resolution.0 as f32
+                    - edge_fillet;
+                fillet_z_value_decrease = fillet_z_value_decrease.min(opposite);
+                // z_value += (hypotenuse.powf(2.0) - adjacent.powf(2.0)).sqrt() * resolution.0 as f32
+                //     - edge_fillet;
+            } else if (x as f32) >= vertex_counts.0 as f32 - edge_fillet_vertex_count.0 {
+                let adjacent = edge_fillet_vertex_count.0 - (vertex_counts.0 - x) as f32;
+                let hypotenuse = edge_fillet_vertex_count.0;
+                let opposite = (hypotenuse.powf(2.0) - adjacent.powf(2.0)).sqrt()
+                    * resolution.0 as f32
+                    - edge_fillet;
+                fillet_z_value_decrease = fillet_z_value_decrease.min(opposite);
+            }
+            if (y as f32) < edge_fillet_vertex_count.1 {
+                let adjacent = edge_fillet_vertex_count.1 - y as f32;
+                let hypotenuse = edge_fillet_vertex_count.1;
+                let opposite = (hypotenuse.powf(2.0) - adjacent.powf(2.0)).sqrt()
+                    * resolution.1 as f32
+                    - edge_fillet;
+                fillet_z_value_decrease = fillet_z_value_decrease.min(opposite);
+            } else if (y as f32) >= vertex_counts.1 as f32 - edge_fillet_vertex_count.1 {
+                let adjacent = edge_fillet_vertex_count.1 - (vertex_counts.1 - y) as f32;
+                let hypotenuse = edge_fillet_vertex_count.1;
+                let opposite = (hypotenuse.powf(2.0) - adjacent.powf(2.0)).sqrt()
+                    * resolution.1 as f32
+                    - edge_fillet;
+                fillet_z_value_decrease = fillet_z_value_decrease.min(opposite);
+            }
+            z_value += fillet_z_value_decrease;
+        }
+
+        z_value
     };
 
     let vertex = |x: usize, y: usize, z: Option<f32>| {
