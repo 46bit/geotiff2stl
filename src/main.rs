@@ -193,6 +193,12 @@ fn geotiff2stl(args: Args) {
             quantise_z_layer_height
         );
     }
+    if let Some(edge_fillet) = args.edge_fillet {
+        println!(
+            "Mesh edges will be filleted (rounded) with a radius of {}mm",
+            edge_fillet
+        );
+    }
     println!();
 
     println!("MESH SIZE");
@@ -326,7 +332,7 @@ fn geotiff2stl(args: Args) {
         triangles.push(triangle(v3, v2, v1));
         triangles.push(triangle(v1, v4, v3));
 
-        let y = buf.size.0 - 1;
+        let y = buf.size.1 - 1;
         let v1 = vertex(x, y, base_z);
         let v2 = vertex(x, y, None);
         let v3 = vertex(x + 1, y, None);

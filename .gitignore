@@ -4,3 +4,8 @@
 *.tif
 *.tfw
 *.xml
+*.cpg
+*.dbf
+*.prj
+*.shp
+*.shx
