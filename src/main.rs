@@ -1,102 +1,174 @@
 use clap::Parser;
 use gdal::{raster::ResampleAlg, Dataset};
 use std::fs::File;
+use std::io::{stdout, Write};
+use std::path::Path;
+use std::process::ExitCode;
 use stl_io::{Normal, Triangle, Vertex};
 
 #[derive(Parser)]
 struct Args {
+    /// Path to the input GeoTIFF image. Must be a file.
     #[arg(long)]
     geotiff: String,
+    /// Path to write the output STL mesh. Specify - to write to STDOUT.
     #[arg(long)]
     stl: String,
+    /// Scale of the horizontal (X and Y) axes
     #[arg(long, default_value_t = 0.016)]
     horizontal_scale: f64,
+    /// Scale of the vertical (Z) axis
     #[arg(long, default_value_t = 0.016)]
     vertical_scale: f32,
+    /// Reduce the size of output meshes by not creating vertices closer than this many mm
     #[arg(long, default_value_t = 0.05)]
     minimum_level_of_detail: f64,
+    /// Optionally thicken the model by extending the base downwards by this many mm
     #[arg(long, default_value_t = 0.0)]
     base_height: f32,
+    /// Optionally centre the coordinates of the output mesh about this X coordinate,
+    /// specified in the coordinate system of the GeoTIFF. Default is to centre the mesh
+    /// at the middle of the GeoTIFF.
     #[arg(long)]
     centre_x: Option<f64>,
+    /// Optionally centre the coordinates of the output mesh about this Y coordinate,
+    /// specified in the coordinate system of the GeoTIFF. Default is to centre the mesh
+    /// at the middle of the GeoTIFF.
     #[arg(long)]
     centre_y: Option<f64>,
+    /// Optionally round Z heights to multiples of this many mm. Creates a contouring effect.
     #[arg(long)]
     quantise_z_layer_height: Option<f32>,
+    /// Optionally fillet (round) the edges of the top surface by this many mm
     #[arg(long)]
     edge_fillet: Option<f32>,
 }
 
-fn main() {
-    let args = Args::parse();
+impl Args {
+    fn validate(&self) -> Result<(), String> {
+        if !Path::new(&self.geotiff).is_file() {
+            return Err(format!(
+                "--geotiff {:?} did not exist or was not a file",
+                self.geotiff
+            ));
+        }
+        if self.stl.len() == 0 {
+            return Err("--stl argument cannot be empty".to_string());
+        }
 
-    if args.geotiff == "-" {
-        panic!("stdin not yet supported");
-    }
-    if args.stl == "-" {
-        panic!("stdout not yet supported");
-    }
-    if args.horizontal_scale <= 0.0 {
-        panic!("horizontal_scale must be positive")
-    }
-    if args.minimum_level_of_detail <= 0.0 {
-        panic!("minimum_level_of_detail must be positive")
-    }
-    if args.base_height < 0.0 {
-        panic!("minimum_level_of_detail cannot be negative")
-    }
-    if let Some(quantise_z_layer_height) = args.quantise_z_layer_height {
-        if quantise_z_layer_height <= 0.0 {
-            panic!("quantise_z_layer_height must be positive");
+        if self.horizontal_scale <= 0.0 {
+            return Err(format!(
+                "--horizontal-scale must be positive, but was {}",
+                self.horizontal_scale
+            ));
         }
-    }
-    if let Some(edge_fillet) = args.edge_fillet {
-        if edge_fillet <= 0.0 {
-            panic!("edge_fillet must be positive");
+        if self.minimum_level_of_detail <= 0.0 {
+            return Err(format!(
+                "--minimum-level-of-detail must be positive, but was {}",
+                self.minimum_level_of_detail
+            ));
         }
-        if let Some(edge_fillet) = args.edge_fillet {
-            if edge_fillet > args.base_height {
-                panic!("edge_fillet cannot exceed base_height");
+        if self.base_height < 0.0 {
+            return Err(format!(
+                "--base-height cannot be negative, but was {}",
+                self.base_height
+            ));
+        }
+        if let Some(quantise_z_layer_height) = self.quantise_z_layer_height {
+            if quantise_z_layer_height <= 0.0 {
+                return Err(format!(
+                    "--quantise-z-layer-height must be positive, but was {}",
+                    quantise_z_layer_height
+                ));
             }
         }
+        if let Some(edge_fillet) = self.edge_fillet {
+            if edge_fillet <= 0.0 {
+                return Err(format!(
+                    "--edge-fillet must be positive, but was {}",
+                    edge_fillet
+                ));
+            }
+            if let Some(edge_fillet) = self.edge_fillet {
+                if edge_fillet > self.base_height {
+                    return Err(format!(
+                        "--edge-fillet cannot exceed --base-height, but {} > {}",
+                        edge_fillet, self.base_height
+                    ));
+                }
+            }
+        }
+        Ok(())
     }
-
-    geotiff2stl(args);
 }
 
-fn geotiff2stl(args: Args) {
-    println!("Reading from {:?}", args.geotiff);
-    println!();
+fn main() -> ExitCode {
+    let args = Args::parse();
+    if let Err(e) = args.validate() {
+        eprintln!("ERROR: Arguments invalid: {}", e);
+        return ExitCode::FAILURE;
+    }
+
+    if let Err(e) = geotiff2stl(args) {
+        eprintln!("ERROR: Could not generate STL: {}", e);
+        return ExitCode::FAILURE;
+    }
+
+    return ExitCode::SUCCESS;
+}
+
+fn geotiff2stl(args: Args) -> Result<(), String> {
+    eprintln!("Reading from {:?}", args.geotiff);
+    eprintln!();
 
     let dataset = Dataset::open(&args.geotiff).unwrap();
 
     if dataset.driver().long_name() != "GeoTIFF" {
-        panic!("dataset was not parsed as a GeoTIFF");
+        return Err(format!(
+            "Input was not parsed as a GeoTIFF: {:?}",
+            dataset.driver().long_name()
+        ));
     }
 
-    println!("GEOTIFF");
+    eprintln!("GEOTIFF");
     let spatial_ref = dataset.spatial_ref().unwrap().name().unwrap();
-    println!("Spatial ref is {:?}", spatial_ref);
+    eprintln!("Spatial ref is {:?}", spatial_ref);
     let geo_transform = dataset.geo_transform().unwrap();
-    println!("Geo transform is {:?}", geo_transform);
+    eprintln!("Geo transform is {:?}", geo_transform);
     let raster_size = dataset.raster_size();
-    println!("Pixel size (x, y) is {:?}", raster_size);
+    eprintln!("Pixel size (x, y) is {:?}", raster_size);
 
     if dataset.raster_count() != 1 {
-        panic!("only 1 raster band is supported");
+        return Err(format!(
+            "only 1 raster band is supported, but had {}",
+            dataset.raster_count()
+        ));
     }
+    // FIXME: Come up with more generic way to only accept British National Grid, or do conversions
     if spatial_ref != "OSGB36 / British National Grid" && spatial_ref != "British_National_Grid" {
-        panic!("only 'OSGB36 / British National Grid' spatial ref is supported");
+        return Err(format!(
+            "only 'OSGB36 / British National Grid' spatial ref is supported, but had {:?}",
+            spatial_ref
+        ));
     }
     // Look up index numbers against https://docs.rs/gdal/latest/gdal/type.GeoTransform.html
     if geo_transform[2] != 0.0 || geo_transform[4] != 0.0 {
-        panic!("geo rotations are not supported");
+        return Err(format!(
+            "GeoTIFF rotations are not supported: {} {}",
+            geo_transform[2], geo_transform[4]
+        ));
     }
     if geo_transform[5] >= 0.0 {
-        panic!("y-axis must be north-up");
+        return Err(format!(
+            "GeoTIFF y-axis must be north-up but was non-negative: {}",
+            geo_transform[5]
+        ));
     }
     if geo_transform[1] <= 0.0 {
-        panic!("x-axis must not be inverted");
+        return Err(format!(
+            "GeoTIFF x-axis must not be inverted: {}",
+            geo_transform[1]
+        ));
     }
 
     let geotiff_top_left_xy = (geo_transform[0], geo_transform[3]);
@@ -105,7 +177,7 @@ fn geotiff2stl(args: Args) {
         geotiff_pixel_resolution_xy_m.0 * (raster_size.0 as f64),
         geotiff_pixel_resolution_xy_m.1 * (raster_size.1 as f64),
     );
-    println!(
+    eprintln!(
         "Geospatial area (x, y) dimensions are {:?}",
         geotiff_geo_dimensions
     );
@@ -113,28 +185,28 @@ fn geotiff2stl(args: Args) {
         geotiff_top_left_xy.0 + geotiff_geo_dimensions.0,
         geotiff_top_left_xy.1 - geotiff_geo_dimensions.1,
     );
-    println!(
+    eprintln!(
         "Geospatial area top-left (x, y) is at {:?}",
         geotiff_top_left_xy
     );
-    println!(
+    eprintln!(
         "Geospatial area bottom-right (x, y) is at {:?}",
         geotiff_bottom_right_xy
     );
-    println!(
+    eprintln!(
         "Geospatial area per pixel (x, y) is {:?}/m",
         geotiff_pixel_resolution_xy_m
     );
-    println!();
+    eprintln!();
 
-    println!("MESH DIMENSIONS");
-    println!(
+    eprintln!("MESH DIMENSIONS");
+    eprintln!(
         "GeoTIFF represents an (x, y) area of {:?}m",
         geotiff_geo_dimensions
     );
-    println!("Horizontal scale is set to {}x", args.horizontal_scale);
-    println!("Vertical scale is set to {}x", args.vertical_scale);
-    println!(
+    eprintln!("Horizontal scale is set to {}x", args.horizontal_scale);
+    eprintln!("Vertical scale is set to {}x", args.vertical_scale);
+    eprintln!(
         "Vertical scale is {}x the horizontal scale",
         args.vertical_scale / args.horizontal_scale as f32
     );
@@ -142,26 +214,26 @@ fn geotiff2stl(args: Args) {
         geotiff_geo_dimensions.0 * args.horizontal_scale,
         geotiff_geo_dimensions.1 * args.horizontal_scale,
     );
-    println!(
+    eprintln!(
         "Mesh dimensions (x, y) will be {:?}mm = ({}, {})meters",
         mesh_dimensions,
         mesh_dimensions.0 / 1000.0,
         mesh_dimensions.1 / 1000.0
     );
     let base_z = Some(-args.base_height);
-    println!("Mesh base height will be {}mm", args.base_height);
-    println!();
+    eprintln!("Mesh base height will be {}mm", args.base_height);
+    eprintln!();
 
-    println!("MESH LEVEL OF DETAIL");
+    eprintln!("MESH LEVEL OF DETAIL");
     let available_resolution = (
         (1.0 / geotiff_pixel_resolution_xy_m.0) * args.horizontal_scale,
         (1.0 / geotiff_pixel_resolution_xy_m.1) * args.horizontal_scale,
     );
-    println!(
+    eprintln!(
         "GeoTIFF provides an (x, y) level of detail of {:?}mm",
         available_resolution
     );
-    println!(
+    eprintln!(
         "Minimum level of detail is set to {}mm",
         args.minimum_level_of_detail
     );
@@ -169,12 +241,12 @@ fn geotiff2stl(args: Args) {
         available_resolution.0.max(args.minimum_level_of_detail),
         available_resolution.1.max(args.minimum_level_of_detail),
     );
-    println!("Mesh level of detail (x, y) will be {:?}mm", resolution);
+    eprintln!("Mesh level of detail (x, y) will be {:?}mm", resolution);
     let mut centering_offsets = (mesh_dimensions.0 / 2.0, mesh_dimensions.1 / 2.0);
     if let Some(centre_x) = args.centre_x {
         centering_offsets.0 =
             mesh_dimensions.0 * (centre_x - geotiff_top_left_xy.0) / geotiff_geo_dimensions.0;
-        println!(
+        eprintln!(
             "Mesh is set to put X=0 at real-world coordinate {}",
             centre_x
         );
@@ -182,46 +254,56 @@ fn geotiff2stl(args: Args) {
     if let Some(centre_y) = args.centre_y {
         centering_offsets.1 =
             mesh_dimensions.1 * (centre_y - geotiff_bottom_right_xy.1) / geotiff_geo_dimensions.1;
-        println!(
+        eprintln!(
             "Mesh is set to put Y=0 at real-world coordinate {}",
             centre_y
         );
     }
     if let Some(quantise_z_layer_height) = args.quantise_z_layer_height {
-        println!(
+        eprintln!(
             "Mesh is set to quantize Z heights into steps of {}mm",
             quantise_z_layer_height
         );
     }
     if let Some(edge_fillet) = args.edge_fillet {
-        println!(
+        eprintln!(
             "Mesh edges will be filleted (rounded) with a radius of {}mm",
             edge_fillet
         );
     }
-    println!();
+    eprintln!();
 
-    println!("MESH SIZE");
+    eprintln!("MESH SIZE");
     let vertex_counts = (
         (mesh_dimensions.0 as f64 * 1.0 / resolution.0).floor() as usize,
         (mesh_dimensions.1 as f64 * 1.0 / resolution.1).floor() as usize,
     );
-    println!("Mesh vertex counts (x, y) are {:?}", vertex_counts);
-    println!(
+    eprintln!("Mesh vertex counts (x, y) are {:?}", vertex_counts);
+    eprintln!(
         "Mesh will have {} vertices",
         vertex_counts.0 * vertex_counts.1
     );
-    println!();
+    eprintln!();
 
     let rasterband = dataset.rasterband(1).unwrap();
     if rasterband.size() != dataset.raster_size() {
-        panic!("scaled rasterbands is not supported");
+        return Err(format!(
+            "GeoTIFF scaled rasterbands are not supported: {:?} was not {:?}",
+            rasterband.size(),
+            dataset.raster_size()
+        ));
     }
     if rasterband.color_interpretation() != gdal::raster::ColorInterpretation::GrayIndex {
-        panic!("non-grayindex rasterband color tables are not supported");
+        return Err(format!(
+            "GeoTIFF non-grayindex rasterband color tables are not supported: {:?}",
+            rasterband.color_interpretation()
+        ));
     }
     if rasterband.band_type().name() != "Float32" {
-        panic!("non-float32 rasterband types are not supported");
+        return Err(format!(
+            "GeoTIFF non-float32 rasterband types are not supported: {:?}",
+            rasterband.band_type().name()
+        ));
     }
 
     let buf = rasterband
@@ -254,8 +336,6 @@ fn geotiff2stl(args: Args) {
                     * resolution.0 as f32
                     - edge_fillet;
                 fillet_z_value_decrease = fillet_z_value_decrease.min(opposite);
-                // z_value += (hypotenuse.powf(2.0) - adjacent.powf(2.0)).sqrt() * resolution.0 as f32
-                //     - edge_fillet;
             } else if (x as f32) >= vertex_counts.0 as f32 - edge_fillet_vertex_count.0 {
                 let adjacent = edge_fillet_vertex_count.0 - (vertex_counts.0 - x) as f32;
                 let hypotenuse = edge_fillet_vertex_count.0;
@@ -385,22 +465,29 @@ fn geotiff2stl(args: Args) {
         .map(|v| v[2])
         .fold(f32::INFINITY, |a: f32, b: f32| a.min(b));
 
-    println!("RESULT");
-    println!("Mesh has {} triangles", triangles.len());
-    println!("Mesh X ranges between {}mm and {}mm", x_max, x_min);
-    println!("Mesh Y ranges between {}mm and {}mm", y_max, y_min);
-    println!("Mesh height ranges between {}mm and {}mm", z_max, z_min);
-    println!(
+    eprintln!("RESULT");
+    eprintln!("Mesh has {} triangles", triangles.len());
+    eprintln!("Mesh X ranges between {}mm and {}mm", x_max, x_min);
+    eprintln!("Mesh Y ranges between {}mm and {}mm", y_max, y_min);
+    eprintln!("Mesh height ranges between {}mm and {}mm", z_max, z_min);
+    eprintln!(
         "Horizontal scale is 1:{:.2}",
         1000.0 / args.horizontal_scale
     );
-    println!("Vertical scale is 1:{:.2}", 1000.0 / args.vertical_scale);
-    println!("Import the mesh to other software using millimeters");
-    println!();
+    eprintln!("Vertical scale is 1:{:.2}", 1000.0 / args.vertical_scale);
+    eprintln!("Import the mesh to other software using millimeters");
+    eprintln!();
 
-    println!("Writing to {:?}", args.stl);
-    let mut f = File::create(args.stl).unwrap();
-    stl_io::write_stl(&mut f, triangles.iter()).unwrap();
+    eprintln!("Writing to {:?}", args.stl);
+    let mut f: Box<dyn Write> = if args.stl == "-" {
+        Box::new(stdout().lock())
+    } else {
+        Box::new(File::create(args.stl).unwrap())
+    };
+    if let Err(e) = stl_io::write_stl(&mut f, triangles.iter()) {
+        return Err(format!("error writing STL: {}", e));
+    }
+    Ok(())
 }
 
 fn triangle(v1: Vertex, v2: Vertex, v3: Vertex) -> Triangle {
