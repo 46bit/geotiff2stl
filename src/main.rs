@@ -62,7 +62,7 @@ impl Args {
                 self.geotiff
             ));
         }
-        if self.stl.len() == 0 {
+        if self.stl.is_empty() {
             return Err("--stl argument cannot be empty".to_string());
         }
 
@@ -124,7 +124,7 @@ fn main() -> ExitCode {
         return ExitCode::FAILURE;
     }
 
-    return ExitCode::SUCCESS;
+    ExitCode::SUCCESS
 }
 
 fn geotiff2stl(args: Args) -> Result<(), String> {
@@ -285,8 +285,8 @@ fn geotiff2stl(args: Args) -> Result<(), String> {
 
     eprintln!("MESH SIZE");
     let vertex_counts = (
-        (mesh_dimensions.0 as f64 * 1.0 / resolution.0).floor() as usize,
-        (mesh_dimensions.1 as f64 * 1.0 / resolution.1).floor() as usize,
+        (mesh_dimensions.0 * 1.0 / resolution.0).floor() as usize,
+        (mesh_dimensions.1 * 1.0 / resolution.1).floor() as usize,
     );
     eprintln!("Mesh vertex counts (x, y) are {:?}", vertex_counts);
     eprintln!(
@@ -455,38 +455,32 @@ fn geotiff2stl(args: Args) -> Result<(), String> {
 
     let x_max = triangles
         .iter()
-        .map(|t| t.vertices)
-        .flatten()
+        .flat_map(|t| t.vertices)
         .map(|v| v[0])
         .fold(0.0, |a: f32, b: f32| a.max(b));
     let x_min = triangles
         .iter()
-        .map(|t| t.vertices)
-        .flatten()
+        .flat_map(|t| t.vertices)
         .map(|v| v[0])
         .fold(f32::INFINITY, |a: f32, b: f32| a.min(b));
     let y_max = triangles
         .iter()
-        .map(|t| t.vertices)
-        .flatten()
+        .flat_map(|t| t.vertices)
         .map(|v| v[1])
         .fold(0.0, |a: f32, b: f32| a.max(b));
     let y_min = triangles
         .iter()
-        .map(|t| t.vertices)
-        .flatten()
+        .flat_map(|t| t.vertices)
         .map(|v| v[1])
         .fold(f32::INFINITY, |a: f32, b: f32| a.min(b));
     let z_max = triangles
         .iter()
-        .map(|t| t.vertices)
-        .flatten()
+        .flat_map(|t| t.vertices)
         .map(|v| v[2])
         .fold(0.0, |a: f32, b: f32| a.max(b));
     let z_min = triangles
         .iter()
-        .map(|t| t.vertices)
-        .flatten()
+        .flat_map(|t| t.vertices)
         .map(|v| v[2])
         .fold(f32::INFINITY, |a: f32, b: f32| a.min(b));
 
