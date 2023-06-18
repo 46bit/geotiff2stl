@@ -1,4 +1,4 @@
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use gdal::{raster::ResampleAlg, Dataset};
 use std::fs::File;
 use std::io::{stdout, Write};
@@ -6,7 +6,7 @@ use std::path::Path;
 use std::process::ExitCode;
 use stl_io::{Normal, Triangle, Vertex};
 
-#[derive(Parser)]
+#[derive(Parser, PartialEq, Clone, Debug)]
 struct Args {
     /// Path to the input GeoTIFF image. Must be a file.
     #[arg(long)]
@@ -36,12 +36,22 @@ struct Args {
     /// at the middle of the GeoTIFF.
     #[arg(long)]
     centre_y: Option<f64>,
+    /// What to use as `0` in the Z (vertical) axis. Either sea level or the minimum height
+    /// in the GeoTIFF.
+    #[arg(long, value_enum, default_value_t = ZOffset::SeaLevel)]
+    z_offset: ZOffset,
     /// Optionally round Z heights to multiples of this many mm. Creates a contouring effect.
     #[arg(long)]
     quantise_z_layer_height: Option<f32>,
     /// Optionally fillet (round) the edges of the top surface by this many mm
     #[arg(long)]
     edge_fillet: Option<f32>,
+}
+
+#[derive(ValueEnum, PartialEq, Clone, Debug)]
+enum ZOffset {
+    SeaLevel,
+    DataMinimum,
 }
 
 impl Args {
@@ -314,9 +324,24 @@ fn geotiff2stl(args: Args) -> Result<(), String> {
             Some(ResampleAlg::Bilinear),
         )
         .unwrap();
+
+    let mut z_offset = 0.0;
+    if args.z_offset == ZOffset::DataMinimum {
+        z_offset = f32::INFINITY;
+        for y in 0..(buf.size.1 - 1) {
+            for x in 0..(buf.size.0 - 1) {
+                let y_flipped = buf.size.1 - y - 1;
+                let z_value = buf.data[y_flipped * buf.size.0 + x] * args.vertical_scale;
+                if z_value < z_offset {
+                    z_offset = z_value;
+                }
+            }
+        }
+    }
+
     let buf_z = |x: usize, y: usize| {
         let y_flipped = buf.size.1 - y - 1;
-        let mut z_value = buf.data[y_flipped * buf.size.0 + x] * args.vertical_scale;
+        let mut z_value = buf.data[y_flipped * buf.size.0 + x] * args.vertical_scale - z_offset;
 
         if let Some(quantise_z_layer_height) = args.quantise_z_layer_height {
             let quantization_multiplier = 1.0 / quantise_z_layer_height;
