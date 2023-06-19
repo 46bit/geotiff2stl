@@ -7,5 +7,6 @@ RUN apt-get clean
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- --default-toolchain none -y
 ENV PATH="/root/.cargo/bin:${PATH}"
 
+RUN rustup default stable
 RUN rustup toolchain install stable --component clippy --component rustfmt --profile minimal --no-self-update
 RUN rustc +stable --version --verbose
