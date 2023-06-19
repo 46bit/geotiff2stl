@@ -1,0 +1,11 @@
+FROM ghcr.io/osgeo/gdal:ubuntu-small-latest
+
+RUN apt-get update -y
+RUN apt-get install -y build-essential pkg-config curl
+RUN apt-get clean
+
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- --default-toolchain none -y
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+RUN rustup toolchain install stable --component clippy --component rustfmt --profile minimal --no-self-update
+RUN rustc +stable --version --verbose
