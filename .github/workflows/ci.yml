@@ -1,40 +1,70 @@
+name: ci
 on: [push, pull_request]
-
-name: Continuous integration
-
 jobs:
-  check:
-    name: Check
+  cargo-check:
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/osgeo/gdal:ubuntu-full-latest
+      image: ghcr.io/46bit/geotiff2stl-base:latest
     steps:
       - uses: actions/checkout@v3
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy, rustfmt
-      - run: |
-          apt-get update -y
-          apt-get install -y build-essential pkg-config
-
       - name: cargo check
         uses: actions-rs/cargo@v1
         with:
           command: check
+
+  cargo-test:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/46bit/geotiff2stl-base:latest
+    steps:
+      - uses: actions/checkout@v3
       - name: cargo test
         uses: actions-rs/cargo@v1
         with:
           command: test
+
+  cargo-fmt:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/46bit/geotiff2stl-base:latest
+    steps:
+      - uses: actions/checkout@v3
       - name: cargo fmt
         uses: actions-rs/cargo@v1
         with:
           command: fmt
           args: --all -- --check
+
+  cargo-clippy:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/46bit/geotiff2stl-base:latest
+    steps:
+      - uses: actions/checkout@v3
       - name: cargo clippy
         uses: actions-rs/cargo@v1
         with:
           command: clippy
           args: -- -D warnings
+
+  cargo-build-release:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/46bit/geotiff2stl-base:latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: cargo build
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --release
+
+  docker-build:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/46bit/geotiff2stl-base:latest
+    steps:
+      - uses: actions/checkout@v3
       - name: cargo build
         uses: actions-rs/cargo@v1
         with:

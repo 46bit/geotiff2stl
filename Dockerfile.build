@@ -1,0 +1,5 @@
+FROM ghcr.io/46bit/geotiff2stl-base:latest
+
+RUN cargo build --release
+RUN mv target/release/geotiff2stl /
+ENV PATH="${PWD}/target/release:${PATH}"

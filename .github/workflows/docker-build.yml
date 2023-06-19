@@ -1,10 +1,14 @@
-name: docker-base
+name: docker-build
 on:
   push:
     branches:
       - 'main'
   schedule:
     - cron: "0 0 * * 1"
+  workflow_run:
+    workflows: ["ci"]
+    types:
+      - completed
 jobs:
   docker:
     runs-on: ubuntu-latest
@@ -24,7 +28,7 @@ jobs:
       - name: Build and push
         uses: docker/build-push-action@v4
         with:
-          file: Dockerfile.base
+          file: Dockerfile.build
           context: .
           push: true
-          tags: ghcr.io/46bit/geotiff2stl-base:latest
+          tags: ghcr.io/46bit/geotiff2stl:latest
