@@ -1,5 +1,7 @@
 FROM ghcr.io/46bit/geotiff2stl-base:latest
+COPY . /tmp/geotiff2stl
+RUN cd /tmp/geotiff2stl && cargo build --release
 
-RUN cargo build --release
-RUN mv target/release/geotiff2stl /
-ENV PATH="${PWD}/target/release:${PATH}"
+FROM ghcr.io/46bit/geotiff2stl-base:latest
+COPY --from=0 /tmp/geotiff2stl/target/release/geotiff2stl /usr/bin/geotiff2stl
+CMD ["geotiff2stl", "--help"]

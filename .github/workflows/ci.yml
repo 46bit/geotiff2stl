@@ -6,67 +6,49 @@ jobs:
     container:
       image: ghcr.io/46bit/geotiff2stl-base:latest
     steps:
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
       - uses: actions/checkout@v3
-      - name: cargo check
-        uses: actions-rs/cargo@v1
-        with:
-          command: check
+      - run: cargo check
 
   cargo-test:
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/46bit/geotiff2stl-base:latest
     steps:
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
       - uses: actions/checkout@v3
-      - name: cargo test
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
+      - run: cargo test
 
   cargo-fmt:
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/46bit/geotiff2stl-base:latest
     steps:
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: rustup component add rustfmt
       - uses: actions/checkout@v3
-      - name: cargo fmt
-        uses: actions-rs/cargo@v1
-        with:
-          command: fmt
-          args: --all -- --check
+      - run: cargo fmt --all -- --check
 
   cargo-clippy:
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/46bit/geotiff2stl-base:latest
     steps:
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: rustup component add clippy
       - uses: actions/checkout@v3
-      - name: cargo clippy
-        uses: actions-rs/cargo@v1
-        with:
-          command: clippy
-          args: -- -D warnings
+      - run: cargo clippy -- -D warnings
 
   cargo-build-release:
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/46bit/geotiff2stl-base:latest
     steps:
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
       - uses: actions/checkout@v3
-      - name: cargo build
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --release
-
-  docker-build:
-    runs-on: ubuntu-latest
-    container:
-      image: ghcr.io/46bit/geotiff2stl-base:latest
-    steps:
-      - uses: actions/checkout@v3
-      - name: cargo build
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --release
+      - run: cargo build --release

@@ -1,30 +1,27 @@
 name: docker-base
 on:
   push:
-    branches:
-      - 'main'
+    branches: ["main"]
   schedule:
     - cron: "0 0 * * 1"
 jobs:
-  docker:
+  docker-base:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v3
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v2
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
-      - name: Login to GitHub Container Registry
-        uses: docker/login-action@v2
+      - uses: actions/checkout@v3
+      - uses: docker/setup-qemu-action@v2
+      - uses: docker/setup-buildx-action@v2
+      - uses: docker/login-action@v2
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Build and push
         uses: docker/build-push-action@v4
         with:
           file: Dockerfile.base
           context: .
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ghcr.io/46bit/geotiff2stl-base:latest
